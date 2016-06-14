@@ -1,6 +1,8 @@
 #!/usr/bin/perl
 use IO::Handle;
 
+my $toolchains_version = '4.9';
+
 my $exe_name = shift (@ARGV);
 my $log_name = shift (@ARGV);
 
@@ -8,6 +10,8 @@ if (!$exe_name || !$log_name) {
    print "Usage: $0 <PROGRAM> <LEAKFILE>\n";
    exit (1);
 }
+
+if ($ENV{'NDK_ROOT'} eq '') { die "Add 'NDK_ROOT' to your environment specifing Android NDK location root."; }
 
 print "Processing \"$log_name\" log for \"$exe_name\"\n";
 
@@ -45,7 +49,8 @@ my @unique_addresses = keys (%addresses);
 my $addr_list = "";
 foreach $addr (@unique_addresses) { $addr_list .= " $addr"; }
 
-if (!open(ADDRLIST, "addr2line -e $exe_name $addr_list |")) { die "Failed to resolve addresses"; }
+my $addr_exec = "$ENV{'NDK_ROOT'}/toolchains/arm-linux-androideabi-$toolchains_version/prebuilt/darwin-x86_64/bin/arm-linux-androideabi-addr2line";
+if (!open(ADDRLIST, "$addr_exec -e $exe_name $addr_list |")) { die "Failed to resolve addresses"; }
 my $addr_idx = 0;
 while (<ADDRLIST>) {
    chomp;

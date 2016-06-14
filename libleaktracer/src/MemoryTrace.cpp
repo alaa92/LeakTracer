@@ -114,15 +114,27 @@ MemoryTrace::init_no_alloc_allowed()
 			if (curfunc->libcsymbol) {
 				*curfunc->localredirect = curfunc->libcsymbol;
 			} else {
+#ifdef __ANDROID__
+				// use RTLD_DEFAULT to make sure symbols could be found on Android
+				*curfunc->localredirect = dlsym(RTLD_DEFAULT, curfunc->symbname); 
+#else
 				*curfunc->localredirect = dlsym(RTLD_NEXT, curfunc->symbname); 
+#endif
 			}
 		}
-	} 
+	}
 
 	__instance = reinterpret_cast<MemoryTrace*>(&s_memoryTrace_instance);
 
 	// we're using a c++ placement to initialized the MemoryTrace object living in the data section
 	new (__instance) MemoryTrace();
+
+#ifdef __ANDROID__
+	// we need base addr to locate symbols
+	Dl_info dlinfo;
+	dladdr((const void*)MemoryTrace::init_no_alloc_allowed, &dlinfo);
+	__instance->setBaseAddr((intptr_t)dlinfo.dli_fbase);
+#endif
 
 	// it seems some implementation of pthread_key_create use malloc() internally (old linuxthreads)
 	// these are not supported yet

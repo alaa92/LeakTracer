@@ -24,6 +24,10 @@
 #ifdef USE_BACKTRACE
 #include <execinfo.h>
 #endif
+#ifdef __ANDROID__
+#include <dlfcn.h>
+#include <unwind.h>
+#endif
 
 
 #include "Mutex.hpp"
@@ -48,7 +52,7 @@
 /////////////////////////////////////////////////////////////
 
 #ifndef ALLOCATION_STACK_DEPTH
-#	define ALLOCATION_STACK_DEPTH 5
+#	define ALLOCATION_STACK_DEPTH 8
 #endif
 
 #ifndef PRINTED_DATA_BUFFER_SIZE
@@ -58,7 +62,6 @@
 
 
 namespace leaktracer {
-
 
 /**
  * Main class to trace memory allocations
@@ -197,6 +200,15 @@ private:
 	memory_allocations_info_t __allocations;
 	Mutex __allocations_mutex;
 	void clearAllocationsInfo(void);
+
+#ifdef __ANDROID__
+	intptr_t __ltBaseAddr;
+
+public:
+	inline void setBaseAddr(intptr_t addr) { __ltBaseAddr = addr; }
+	inline intptr_t getBaseAddr() const { return __ltBaseAddr; }
+#endif
+
 };
 
 
@@ -312,11 +324,45 @@ inline void MemoryTrace::stopAllMonitoring(void)
 }
 
 
+#ifdef __ANDROID__
+struct TraceHandle
+{
+	void** backtrace;
+	int pos;
+};
+
+
+inline _Unwind_Reason_Code unwindTrace(_Unwind_Context* context, void* hnd)
+{
+	struct TraceHandle* traceHanle = (struct TraceHandle*)hnd;
+	_Unwind_Word ip = _Unwind_GetIP(context);
+	if (traceHanle->pos != ALLOCATION_STACK_DEPTH)
+	{
+		intptr_t base = leaktracer::MemoryTrace::GetInstance().getBaseAddr();
+		traceHanle->backtrace[traceHanle->pos] = (void*)(ip - (_Unwind_Word)base);
+		++traceHanle->pos;
+		return _URC_NO_REASON;
+	}
+	return _URC_END_OF_STACK;
+}
+#endif
+
+
 // stores allocation stack, up to ALLOCATION_STACK_DEPTH
 // frames
 inline void MemoryTrace::storeAllocationStack(void* arr[ALLOCATION_STACK_DEPTH])
 {
 	unsigned int iIndex = 0;
+#ifdef __ANDROID__
+	TraceHandle traceHandle;
+	traceHandle.backtrace = arr;
+	traceHandle.pos = 0;
+	_Unwind_Backtrace(unwindTrace, &traceHandle);
+
+	// fill remaining spaces
+	for (iIndex = traceHandle.pos; iIndex < ALLOCATION_STACK_DEPTH; iIndex++)
+		arr[iIndex] = NULL;
+#else
 #ifdef USE_BACKTRACE
 	void* arrtmp[ALLOCATION_STACK_DEPTH+1];
 	iIndex = backtrace(arrtmp, ALLOCATION_STACK_DEPTH + 1) - 1;
@@ -335,10 +381,11 @@ inline void MemoryTrace::storeAllocationStack(void* arr[ALLOCATION_STACK_DEPTH])
 	arr[iIndex++] = (pFrame != NULL && (pFrame = __builtin_frame_address(7)) != NULL) ? __builtin_return_address(7) : NULL; if (iIndex == ALLOCATION_STACK_DEPTH) return;
 	arr[iIndex++] = (pFrame != NULL && (pFrame = __builtin_frame_address(8)) != NULL) ? __builtin_return_address(8) : NULL; if (iIndex == ALLOCATION_STACK_DEPTH) return;
 	arr[iIndex++] = (pFrame != NULL && (pFrame = __builtin_frame_address(9)) != NULL) ? __builtin_return_address(9) : NULL;
-#endif
+#endif // end of USE_BACKTRACE
 	// fill remaining spaces
 	for (; iIndex < ALLOCATION_STACK_DEPTH; iIndex++)
 		arr[iIndex] = NULL;
+#endif // end of __ANDROID__
 }
 
 
